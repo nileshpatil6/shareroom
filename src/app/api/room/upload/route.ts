@@ -56,6 +56,11 @@ export async function POST(req: NextRequest) {
         console.error('Vercel Blob upload failed:', blobErr);
         return NextResponse.json({ error: 'Failed to upload to Vercel Blob: ' + msg }, { status: 500 });
       }
+    } else if (process.env.VERCEL) {
+      return NextResponse.json(
+        { error: 'Vercel Blob is not connected yet. Please connect Blob Storage in your Vercel Project settings.' },
+        { status: 500 }
+      );
     } else {
       // Local development fallback file store
       const uploadDir = path.join(process.cwd(), 'public', 'uploads', code);

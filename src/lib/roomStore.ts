@@ -1,15 +1,23 @@
 import { put, del, list } from '@vercel/blob';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { RoomData, RoomItem } from './types';
 
 const TEN_DAYS_MS = 10 * 24 * 60 * 60 * 1000;
 
-const LOCAL_DATA_DIR = path.join(process.cwd(), '.data', 'rooms');
+// Use /tmp directory in serverless/Vercel or local .data directory in dev
+const LOCAL_DATA_DIR = process.env.VERCEL
+  ? path.join(os.tmpdir(), 'shareroom', 'rooms')
+  : path.join(process.cwd(), '.data', 'rooms');
 
 function ensureLocalDir() {
-  if (!fs.existsSync(LOCAL_DATA_DIR)) {
-    fs.mkdirSync(LOCAL_DATA_DIR, { recursive: true });
+  try {
+    if (!fs.existsSync(LOCAL_DATA_DIR)) {
+      fs.mkdirSync(LOCAL_DATA_DIR, { recursive: true });
+    }
+  } catch (e) {
+    console.error('Failed to create local dir:', e);
   }
 }
 
@@ -43,7 +51,6 @@ async function purgeExpiredItems(room: RoomData): Promise<RoomData> {
     const isExpired = now >= item.expiresAt || (now - item.createdAt >= TEN_DAYS_MS);
     if (isExpired) {
       modified = true;
-      // If it's a file with a blobUrl, delete from Vercel Blob if blob storage active
       if (item.type === 'file' && item.blobUrl && hasBlobStore()) {
         try {
           await del(item.blobUrl);
@@ -75,7 +82,6 @@ export async function getRoom(code: string): Promise<RoomData | null> {
   if (hasBlobStore()) {
     try {
       const blobPath = `rooms/${cleanCode}.json`;
-      // Find room blob in list or fetch via public store URL if exists
       const { blobs } = await list({ prefix: blobPath, limit: 1 });
       if (blobs.length > 0) {
         const response = await fetch(blobs[0].url, { cache: 'no-store' });
@@ -88,22 +94,21 @@ export async function getRoom(code: string): Promise<RoomData | null> {
     }
   }
 
-  // Fallback to local storage if blob not found or not configured
+  // Fallback to local /tmp storage if blob not found or not configured
   if (!room) {
-    const localPath = getLocalRoomPath(cleanCode);
-    if (fs.existsSync(localPath)) {
-      try {
+    try {
+      const localPath = getLocalRoomPath(cleanCode);
+      if (fs.existsSync(localPath)) {
         const fileContent = fs.readFileSync(localPath, 'utf-8');
         room = JSON.parse(fileContent) as RoomData;
-      } catch (err) {
-        console.error('Error reading local room:', err);
       }
+    } catch (err) {
+      console.error('Error reading local room:', err);
     }
   }
 
   if (!room) return null;
 
-  // Purge any items older than 10 days
   return await purgeExpiredItems(room);
 }
 
@@ -119,12 +124,13 @@ export async function saveRoom(room: RoomData): Promise<void> {
         allowOverwrite: true,
         contentType: 'application/json',
       });
+      return; // Room saved successfully to Blob store
     } catch (err) {
       console.error('Error saving room to Vercel Blob:', err);
     }
   }
 
-  // Always keep local backup/sync if in local environment
+  // Local /tmp store fallback
   try {
     const localPath = getLocalRoomPath(code);
     fs.writeFileSync(localPath, JSON.stringify(room, null, 2), 'utf-8');
@@ -136,7 +142,6 @@ export async function saveRoom(room: RoomData): Promise<void> {
 export async function createRoom(customCode?: string): Promise<{ room: RoomData; adminToken: string }> {
   let code = customCode && /^\d{4}$/.test(customCode) ? customCode : generate4DigitCode();
   
-  // Ensure unique code if randomly generated
   let existing = await getRoom(code);
   let attempts = 0;
   while (existing && !customCode && attempts < 10) {
@@ -169,7 +174,7 @@ export async function addRoomItem(code: string, item: Omit<RoomItem, 'id' | 'cre
     expiresAt: now + TEN_DAYS_MS,
   };
 
-  room.items.unshift(newItem); // Newest items first
+  room.items.unshift(newItem);
   await saveRoom(room);
   return newItem;
 }
@@ -195,7 +200,6 @@ export async function deleteRoomItem(code: string, itemId: string, adminToken: s
   return true;
 }
 
-// Global cleanup procedure for scheduled Vercel Cron
 export async function runGlobalCleanup(): Promise<{ deletedCount: number }> {
   let deletedCount = 0;
 
@@ -216,22 +220,25 @@ export async function runGlobalCleanup(): Promise<{ deletedCount: number }> {
     }
   }
 
-  // Also clean local dir
   if (fs.existsSync(LOCAL_DATA_DIR)) {
-    const files = fs.readdirSync(LOCAL_DATA_DIR);
-    for (const file of files) {
-      if (file.endsWith('.json')) {
-        const filePath = path.join(LOCAL_DATA_DIR, file);
-        try {
-          const content = fs.readFileSync(filePath, 'utf-8');
-          const room = JSON.parse(content) as RoomData;
-          const initialLength = room.items.length;
-          await purgeExpiredItems(room);
-          deletedCount += (initialLength - room.items.length);
-        } catch (e) {
-          console.error(`Error purging local file ${file}:`, e);
+    try {
+      const files = fs.readdirSync(LOCAL_DATA_DIR);
+      for (const file of files) {
+        if (file.endsWith('.json')) {
+          const filePath = path.join(LOCAL_DATA_DIR, file);
+          try {
+            const content = fs.readFileSync(filePath, 'utf-8');
+            const room = JSON.parse(content) as RoomData;
+            const initialLength = room.items.length;
+            await purgeExpiredItems(room);
+            deletedCount += (initialLength - room.items.length);
+          } catch (e) {
+            console.error(`Error purging local file ${file}:`, e);
+          }
         }
       }
+    } catch (err) {
+      console.error('Error reading local directory:', err);
     }
   }
 
