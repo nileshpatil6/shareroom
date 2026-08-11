@@ -5,15 +5,18 @@ interface PageProps {
   params: Promise<{ code: string }>;
 }
 
+const normalize = (raw: string) => decodeURIComponent(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { code } = await params;
+  const roomCode = normalize(code);
   return {
-    title: `Room #${code} - ShareRoom`,
-    description: `Join room #${code} on ShareRoom to exchange code snippets, text notes, and files (up to 10MB) with auto-erasure.`,
+    title: `Room ${roomCode} - ShareRoom`,
+    description: `Join room ${roomCode} on ShareRoom to exchange code snippets, text notes, and files (up to 10MB) with auto-erasure.`,
   };
 }
 
 export default async function RoomPage({ params }: PageProps) {
   const { code } = await params;
-  return <RoomView roomCode={code} />;
+  return <RoomView roomCode={normalize(code)} />;
 }

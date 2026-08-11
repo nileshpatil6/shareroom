@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { PinInput } from '@/components/PinInput';
+import { PinInput, CODE_LENGTH } from '@/components/PinInput';
 import {
   ShieldCheck,
   Zap,
@@ -15,22 +15,27 @@ import {
   Sparkles,
   Loader2,
   AlertCircle,
+  KeyRound,
 } from 'lucide-react';
+
+const CODE_REGEX = /^[A-Z0-9]{6}$/;
+const MIN_PASSWORD_LENGTH = 4;
 
 export default function HomePage() {
   const router = useRouter();
   const [pinCode, setPinCode] = useState('');
   const [customCode, setCustomCode] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const handleJoin = (codeToJoin?: string) => {
-    const code = codeToJoin || pinCode;
+    const code = (codeToJoin || pinCode).toUpperCase();
     setErrorMsg(null);
 
-    if (!code || !/^\d{4}$/.test(code)) {
-      setErrorMsg('Please enter a valid 4-digit code (e.g. 4821)');
+    if (!CODE_REGEX.test(code)) {
+      setErrorMsg('Please enter a valid 6-character room code (e.g. K7P2XM)');
       return;
     }
 
@@ -41,15 +46,26 @@ export default function HomePage() {
   const handleCreateRoom = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setErrorMsg(null);
+
+    const codeToUse = customCode ? customCode.toUpperCase() : undefined;
+
+    if (codeToUse && !CODE_REGEX.test(codeToUse)) {
+      setErrorMsg('Custom room code must be exactly 6 letters/numbers');
+      return;
+    }
+
+    if (adminPassword.length < MIN_PASSWORD_LENGTH) {
+      setErrorMsg(`Admin password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+      return;
+    }
+
     setIsCreating(true);
 
     try {
-      const codeToUse = customCode && /^\d{4}$/.test(customCode) ? customCode : undefined;
-
       const res = await fetch('/api/room', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: codeToUse }),
+        body: JSON.stringify({ code: codeToUse, password: adminPassword }),
       });
 
       const data = await res.json();
@@ -58,7 +74,7 @@ export default function HomePage() {
         throw new Error(data.error || 'Failed to create room');
       }
 
-      // Save admin token in localStorage for this room
+      // Save admin session token for this room
       if (typeof window !== 'undefined' && data.adminToken) {
         localStorage.setItem(`admin_token_${data.code}`, data.adminToken);
       }
@@ -86,7 +102,7 @@ export default function HomePage() {
             <h1 className="text-lg font-black tracking-tight text-white font-mono">
               Share<span className="text-indigo-400">Room</span>
             </h1>
-            <p className="text-[11px] text-zinc-400">4-Digit Instant Room Sharing</p>
+            <p className="text-[11px] text-zinc-400">Instant Room Sharing</p>
           </div>
         </div>
 
@@ -103,14 +119,16 @@ export default function HomePage() {
         {/* Badge */}
         <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-semibold mb-6">
           <Sparkles className="w-3.5 h-3.5" />
-          <span>Vercel Free Blob Storage Integration</span>
+          <span>Vercel Blob Storage Integration</span>
         </div>
 
         <h2 className="text-4xl sm:text-6xl font-black text-white tracking-tight max-w-2xl leading-tight">
-          Share Code, Text & Files via <span className="text-indigo-400 underline decoration-indigo-500/40">4-Digit Code</span>
+          Share Code, Text & Files via a{' '}
+          <span className="text-indigo-400 underline decoration-indigo-500/40">6-Character Code</span>
         </h2>
         <p className="text-zinc-400 text-sm sm:text-base max-w-xl mt-4 leading-relaxed">
-          Create an instant room as Admin or enter a 4-digit code to join. Format code blocks with 1-click copy, upload files up to 10MB, with automatic 10-day blob erasure.
+          Create a room with your own admin password, then share just the code. Guests join with the code alone; only
+          the admin password unlocks delete controls.
         </p>
 
         {/* Error Alert */}
@@ -130,8 +148,10 @@ export default function HomePage() {
                 <span className="text-xs font-semibold uppercase tracking-wider text-indigo-400">Join Existing Room</span>
                 <Lock className="w-4 h-4 text-zinc-500" />
               </div>
-              <h3 className="text-xl font-bold text-zinc-100">Enter 4-Digit Code</h3>
-              <p className="text-xs text-zinc-400 mt-1">Ask the creator for the room&apos;s 4-digit code.</p>
+              <h3 className="text-xl font-bold text-zinc-100">Enter Room Code</h3>
+              <p className="text-xs text-zinc-400 mt-1">
+                Just the {CODE_LENGTH}-character code, no password needed to join.
+              </p>
 
               <PinInput
                 value={pinCode}
@@ -143,14 +163,14 @@ export default function HomePage() {
 
             <button
               onClick={() => handleJoin()}
-              disabled={isJoining || pinCode.length !== 4}
+              disabled={isJoining || pinCode.length !== CODE_LENGTH}
               className="w-full mt-4 flex items-center justify-center space-x-2 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs transition-all shadow-lg shadow-indigo-600/30 disabled:opacity-40"
             >
               {isJoining ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <>
-                  <span>Join Room #{pinCode || '____'}</span>
+                  <span>Join Room {pinCode || '••••••'}</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
@@ -158,30 +178,53 @@ export default function HomePage() {
           </div>
 
           {/* Card 2: Create Room */}
-          <div className="rounded-3xl bg-zinc-900/90 border border-zinc-800 p-6 shadow-2xl backdrop-blur-md flex flex-col justify-between">
+          <form
+            onSubmit={handleCreateRoom}
+            className="rounded-3xl bg-zinc-900/90 border border-zinc-800 p-6 shadow-2xl backdrop-blur-md flex flex-col justify-between"
+          >
             <div>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-semibold uppercase tracking-wider text-emerald-400">Create New Room</span>
                 <ShieldCheck className="w-4 h-4 text-emerald-400" />
               </div>
               <h3 className="text-xl font-bold text-zinc-100">Become Room Admin</h3>
-              <p className="text-xs text-zinc-400 mt-1">Generates a 4-digit code and grants creator admin controls.</p>
+              <p className="text-xs text-zinc-400 mt-1">Set a code and an admin password you can log back in with.</p>
 
-              <div className="mt-4 space-y-2">
-                <label className="text-[11px] font-medium text-zinc-400">Optional: Custom 4-digit code</label>
-                <input
-                  type="text"
-                  maxLength={4}
-                  value={customCode}
-                  onChange={(e) => setCustomCode(e.target.value.replace(/\D/g, ''))}
-                  placeholder="Auto-generate if empty"
-                  className="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-100 text-xs font-mono outline-none focus:border-emerald-500 placeholder:text-zinc-600"
-                />
+              <div className="mt-4 space-y-3">
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-medium text-zinc-400">Room code (optional)</label>
+                  <input
+                    type="text"
+                    maxLength={CODE_LENGTH}
+                    value={customCode}
+                    onChange={(e) => setCustomCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+                    placeholder="Auto-generate if empty"
+                    className="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-100 text-xs font-mono tracking-widest outline-none focus:border-emerald-500 placeholder:text-zinc-600 placeholder:tracking-normal"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-medium text-zinc-400 flex items-center gap-1.5">
+                    <KeyRound className="w-3 h-3 text-emerald-400" />
+                    Admin password (required)
+                  </label>
+                  <input
+                    type="password"
+                    value={adminPassword}
+                    onChange={(e) => setAdminPassword(e.target.value)}
+                    placeholder={`Min ${MIN_PASSWORD_LENGTH} characters`}
+                    autoComplete="new-password"
+                    className="w-full px-4 py-2.5 rounded-xl bg-zinc-950 border border-zinc-800 text-zinc-100 text-xs outline-none focus:border-emerald-500 placeholder:text-zinc-600"
+                  />
+                  <p className="text-[10px] text-zinc-500 leading-relaxed">
+                    Keep it private. Anyone with the code can post; only this password grants admin.
+                  </p>
+                </div>
               </div>
             </div>
 
             <button
-              onClick={handleCreateRoom}
+              type="submit"
               disabled={isCreating}
               className="w-full mt-6 flex items-center justify-center space-x-2 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-all shadow-lg shadow-emerald-600/30 disabled:opacity-50"
             >
@@ -194,7 +237,7 @@ export default function HomePage() {
                 </>
               )}
             </button>
-          </div>
+          </form>
         </div>
 
         {/* Feature Grid */}
