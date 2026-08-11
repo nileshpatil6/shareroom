@@ -15,6 +15,7 @@ import {
   Clock,
   Sparkles,
   Inbox,
+  PlusCircle,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -30,9 +31,9 @@ export function RoomView({ roomCode }: RoomViewProps) {
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isCreatingRoom, setIsCreatingRoom] = useState(false);
 
-  // Retrieve admin token from localStorage if this user created the room
-  const [adminToken] = useState<string | undefined>(() => {
+  const [adminToken, setAdminToken] = useState<string | undefined>(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem(`admin_token_${roomCode}`) || undefined;
     }
@@ -69,7 +70,7 @@ export function RoomView({ roomCode }: RoomViewProps) {
     }
   }, [roomCode]);
 
-  // Initial load & Polling every 3 seconds for real-time room sync
+  // Initial load & Polling (only if room exists)
   useEffect(() => {
     let isMounted = true;
     const load = async () => {
@@ -78,14 +79,42 @@ export function RoomView({ roomCode }: RoomViewProps) {
     load();
 
     const interval = setInterval(() => {
-      if (isMounted) fetchRoomData();
+      if (isMounted && !error) {
+        fetchRoomData();
+      }
     }, 3000);
 
     return () => {
       isMounted = false;
       clearInterval(interval);
     };
-  }, [fetchRoomData]);
+  }, [fetchRoomData, error]);
+
+  const handleCreateThisRoom = async () => {
+    setIsCreatingRoom(true);
+    try {
+      const res = await fetch('/api/room', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: roomCode }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to create room');
+      }
+      if (data.adminToken) {
+        localStorage.setItem(`admin_token_${roomCode}`, data.adminToken);
+        setAdminToken(data.adminToken);
+      }
+      setError(null);
+      await fetchRoomData();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error creating room';
+      setError(msg);
+    } finally {
+      setIsCreatingRoom(false);
+    }
+  };
 
   const handleDeleteItem = async (itemId: string) => {
     if (!adminToken) return;
@@ -126,21 +155,41 @@ export function RoomView({ roomCode }: RoomViewProps) {
   if (error) {
     return (
       <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-6 text-zinc-100">
-        <div className="max-w-md w-full rounded-2xl bg-zinc-900 border border-zinc-800 p-8 text-center space-y-4">
-          <div className="w-12 h-12 rounded-full bg-red-500/10 text-red-400 flex items-center justify-center mx-auto">
+        <div className="max-w-md w-full rounded-2xl bg-zinc-900 border border-zinc-800 p-8 text-center space-y-5 shadow-2xl">
+          <div className="w-12 h-12 rounded-full bg-amber-500/10 text-amber-400 flex items-center justify-center mx-auto border border-amber-500/20">
             <Info className="w-6 h-6" />
           </div>
-          <h2 className="text-xl font-bold text-zinc-100">Room Not Found</h2>
-          <p className="text-zinc-400 text-sm">
-            Room code <span className="font-mono font-semibold text-zinc-200">#{roomCode}</span> does not exist or has expired.
-          </p>
-          <Link
-            href="/"
-            className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs transition-all shadow-md"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>Back to Home</span>
-          </Link>
+          <div>
+            <h2 className="text-xl font-bold text-zinc-100">Room #{roomCode} Not Created Yet</h2>
+            <p className="text-zinc-400 text-xs mt-1.5 leading-relaxed">
+              No active room exists for 4-digit code <span className="font-mono font-semibold text-zinc-200">#{roomCode}</span>. Would you like to create it now as Admin?
+            </p>
+          </div>
+
+          <div className="flex flex-col space-y-2 pt-2">
+            <button
+              onClick={handleCreateThisRoom}
+              disabled={isCreatingRoom}
+              className="w-full flex items-center justify-center space-x-2 px-5 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs transition-all shadow-md shadow-indigo-600/30 disabled:opacity-50"
+            >
+              {isCreatingRoom ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <PlusCircle className="w-4 h-4" />
+                  <span>Create Room #{roomCode} Now</span>
+                </>
+              )}
+            </button>
+
+            <Link
+              href="/"
+              className="w-full inline-flex items-center justify-center space-x-2 px-5 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium text-xs transition-all border border-zinc-700/60"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Back to Home</span>
+            </Link>
+          </div>
         </div>
       </div>
     );
