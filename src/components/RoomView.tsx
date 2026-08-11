@@ -107,14 +107,23 @@ export function RoomView({ roomCode: rawRoomCode }: RoomViewProps) {
     load();
 
     const interval = setInterval(() => {
-      if (isMounted && !error) {
+      // Skip polling for a hidden tab; the focus handler catches it up
+      if (isMounted && !error && document.visibilityState === 'visible') {
         fetchRoomData();
       }
-    }, 3000);
+    }, 2000);
+
+    const onVisible = () => {
+      if (isMounted && document.visibilityState === 'visible') fetchRoomData();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
 
     return () => {
       isMounted = false;
       clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
     };
   }, [fetchRoomData, error]);
 
@@ -457,7 +466,7 @@ export function RoomView({ roomCode: rawRoomCode }: RoomViewProps) {
               <Sparkles className="w-4 h-4 text-indigo-400" />
               <span>Room Stream ({items.length})</span>
             </h3>
-            <span className="text-xs text-zinc-500">Auto-syncs every 3s</span>
+            <span className="text-xs text-zinc-500">Auto-syncs every 2s</span>
           </div>
 
           {items.length === 0 ? (

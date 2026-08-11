@@ -134,9 +134,22 @@ async function purgeExpiredItems(room: RoomData): Promise<RoomData> {
   return room;
 }
 
-// Blob CDN caches by full URL, so a unique query string forces a fresh read.
-function noCacheUrl(url: string): string {
-  return `${url}${url.includes('?') ? '&' : '?'}_ts=${Date.now()}`;
+// Blob's edge cache serves an overwritten pathname stale for up to a minute, so
+// every save writes an immutable revision under rooms/<CODE>/<ts>-<rand>.json and
+// reads take the newest one. A never-before-seen URL can't be a stale cache hit.
+const LEGACY_PATH = (code: string) => `rooms/${code}.json`;
+const ROOM_PREFIX = (code: string) => `rooms/${code}/`;
+const REVISION_IMMUTABLE_MAX_AGE = 60 * 60 * 24 * 30; // revisions never change
+
+function newRevisionPath(code: string): string {
+  // Fixed-width timestamp keeps plain string sort chronological
+  const stamp = Date.now().toString().padStart(14, '0');
+  return `${ROOM_PREFIX(code)}${stamp}-${crypto.randomBytes(4).toString('hex')}.json`;
+}
+
+// Newest revision first
+function sortRevisions<T extends { pathname: string }>(blobs: T[]): T[] {
+  return [...blobs].sort((a, b) => (a.pathname < b.pathname ? 1 : a.pathname > b.pathname ? -1 : 0));
 }
 
 export async function getRoom(rawCode: string): Promise<RoomData | null> {
@@ -147,13 +160,23 @@ export async function getRoom(rawCode: string): Promise<RoomData | null> {
 
   if (hasBlobStore()) {
     try {
-      const blobPath = `rooms/${code}.json`;
-      const { blobs } = await list({ prefix: blobPath, limit: 1 });
-      const match = blobs.find((b) => b.pathname === blobPath);
-      if (match) {
-        const response = await fetch(noCacheUrl(match.url), { cache: 'no-store' });
+      const { blobs } = await list({ prefix: ROOM_PREFIX(code) });
+      const revisions = sortRevisions(blobs.filter((b) => b.pathname.endsWith('.json')));
+
+      if (revisions.length > 0) {
+        const response = await fetch(revisions[0].url, { cache: 'no-store' });
         if (response.ok) {
           room = (await response.json()) as RoomData;
+        }
+      } else {
+        // Rooms created before revisioning still live at rooms/<CODE>.json
+        const legacy = await list({ prefix: LEGACY_PATH(code), limit: 1 });
+        const match = legacy.blobs.find((b) => b.pathname === LEGACY_PATH(code));
+        if (match) {
+          const response = await fetch(match.url, { cache: 'no-store' });
+          if (response.ok) {
+            room = (await response.json()) as RoomData;
+          }
         }
       }
     } catch (err) {
@@ -179,13 +202,29 @@ export async function saveRoom(room: RoomData): Promise<void> {
   const code = room.code;
 
   if (hasBlobStore()) {
-    await put(`rooms/${code}.json`, JSON.stringify(room), {
+    const revisionPath = newRevisionPath(code);
+    await put(revisionPath, JSON.stringify(room), {
       access: 'public',
       addRandomSuffix: false,
       allowOverwrite: true,
       contentType: 'application/json',
-      cacheControlMaxAge: 60,
+      cacheControlMaxAge: REVISION_IMMUTABLE_MAX_AGE,
     });
+
+    // Drop superseded revisions (and any legacy single-file room)
+    try {
+      const [{ blobs }, legacy] = await Promise.all([
+        list({ prefix: ROOM_PREFIX(code) }),
+        list({ prefix: LEGACY_PATH(code), limit: 1 }),
+      ]);
+      const stale = [
+        ...blobs.filter((b) => b.pathname !== revisionPath).map((b) => b.url),
+        ...legacy.blobs.filter((b) => b.pathname === LEGACY_PATH(code)).map((b) => b.url),
+      ];
+      if (stale.length > 0) await del(stale);
+    } catch (err) {
+      console.error('Failed pruning old room revisions:', err);
+    }
     return;
   }
 
@@ -295,8 +334,17 @@ export async function runGlobalCleanup(): Promise<{ deletedCount: number }> {
   if (hasBlobStore()) {
     try {
       const { blobs } = await list({ prefix: 'rooms/' });
-      for (const blob of blobs) {
-        const res = await fetch(noCacheUrl(blob.url), { cache: 'no-store' });
+      // Only the newest revision of each room needs purging
+      const seen = new Set<string>();
+      const latest = sortRevisions(blobs.filter((b) => b.pathname.endsWith('.json'))).filter((b) => {
+        const roomKey = b.pathname.split('/')[1].replace(/\.json$/, '');
+        if (seen.has(roomKey)) return false;
+        seen.add(roomKey);
+        return true;
+      });
+
+      for (const blob of latest) {
+        const res = await fetch(blob.url, { cache: 'no-store' });
         if (res.ok) {
           const room = (await res.json()) as RoomData;
           const initialLength = room.items.length;
