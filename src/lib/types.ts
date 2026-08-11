@@ -16,8 +16,10 @@ export interface RoomItem {
 }
 
 export interface RoomData {
-  code: string; // 4-digit code e.g. "4821"
-  adminToken: string; // Secret key for admin verification
+  code: string; // 6-char alphanumeric code e.g. "K7P2XM"
+  adminToken: string; // Secret session key handed out after password login
+  passwordSalt?: string; // Hex salt for the admin password
+  passwordHash?: string; // scrypt hash of the admin password
   createdAt: number;
   items: RoomItem[];
 }
