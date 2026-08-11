@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runGlobalCleanup } from '@/lib/roomStore';
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 export async function GET(req: NextRequest) {
   try {
     const authHeader = req.headers.get('authorization');

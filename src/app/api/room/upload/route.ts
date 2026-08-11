@@ -2,19 +2,22 @@ import { NextRequest, NextResponse } from 'next/server';
 import { put } from '@vercel/blob';
 import fs from 'fs';
 import path from 'path';
-import { addRoomItem, getRoom } from '@/lib/roomStore';
+import { addRoomItem, getRoom, isAdminToken, isValidCode, normalizeCode } from '@/lib/roomStore';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB in bytes
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
     const file = formData.get('file') as File | null;
-    const code = formData.get('code') as string | null;
+    const code = normalizeCode(formData.get('code') as string | null);
     const adminToken = formData.get('adminToken') as string | null;
 
-    if (!code || !/^\d{4}$/.test(code)) {
-      return NextResponse.json({ error: 'Valid 4-digit room code is required' }, { status: 400 });
+    if (!isValidCode(code)) {
+      return NextResponse.json({ error: 'Valid 6-character room code is required' }, { status: 400 });
     }
 
     if (!file) {
@@ -34,7 +37,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Room not found' }, { status: 404 });
     }
 
-    const isCreatorAdmin = Boolean(adminToken && adminToken === room.adminToken);
+    const isCreatorAdmin = isAdminToken(room, adminToken);
     const fileName = file.name || 'unnamed_file';
     const mimeType = file.type || 'application/octet-stream';
     const bytes = await file.arrayBuffer();
