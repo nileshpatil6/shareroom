@@ -1,36 +1,51 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ShareRoom - 4-Digit Room Code Sharing Website
 
-## Getting Started
+ShareRoom is a Next.js web application designed for fast, frictionless text, formatted code snippet, and file sharing using a 4-digit room code. Built for Vercel free deployment with Vercel Free Blob storage and automated 10-day data erasure.
 
-First, run the development server:
+## Features
 
+- **4-Digit Room Code Access**: Join any room instantly using a 4-digit PIN (e.g., `4821`).
+- **Creator Admin Role**: The creator of a room gets an Admin badge with full control to post and delete items.
+- **Text & Formatted Code Blocks**: Paste plain text or code with syntax highlighting (JS, TS, Python, HTML, CSS, JSON, SQL, Bash) and a 1-click **Copy Code** button.
+- **File Sharing (Max 10 MB)**: Upload files up to 10MB per file stored on Vercel Blob.
+- **10-Day Auto Erasure**: All files and shared items are automatically deleted from Vercel Blob 10 days after creation. Includes automated daily cron cleanup (`/api/cron/cleanup`).
+
+---
+
+## Deploying to Vercel (Free Tier)
+
+### Step 1: Push Code to GitHub / Git Provider
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git init
+git add .
+git commit -m "Initial commit of ShareRoom"
+git branch -M main
+git remote add origin <YOUR_GITHUB_REPO_URL>
+git push -u origin main
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Step 2: Import into Vercel
+1. Go to [Vercel Dashboard](https://vercel.com/dashboard) and click **"Add New..."** -> **"Project"**.
+2. Select your `shareroom` GitHub repository.
+3. Keep default build command (`npm run build`) and output settings.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Step 3: Enable Free Vercel Blob Storage
+1. After importing (or from your Vercel Project page), go to the **Storage** tab.
+2. Click **Create Database** -> Select **Blob** (Vercel Blob).
+3. Name your store (e.g., `shareroom-blob`) and click **Create**.
+4. Click **Connect to Project** and select your `shareroom` project.
+5. Vercel will automatically inject the `BLOB_READ_WRITE_TOKEN` environment variable into your deployment!
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Step 4: Redeploy Project
+1. In Vercel, trigger a redeploy (or push a commit).
+2. Your ShareRoom site is live with free Blob storage and automated 10-day file cleanup!
 
-## Learn More
+---
 
-To learn more about Next.js, take a look at the following resources:
+## Local Development
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Run the development server locally:
+```bash
+npm run dev
+```
+Open [http://localhost:3000](http://localhost:3000) with your browser.
